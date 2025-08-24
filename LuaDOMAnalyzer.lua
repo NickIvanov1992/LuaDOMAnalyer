@@ -119,4 +119,5 @@ function update_stakan_table(t_id, quote)
     end
     
     return true
+    
 end
