@@ -1,108 +1,122 @@
 function main()
-    -- Ð¡Ð¾Ð·Ð´Ð°ÐµÐ¼ Ñ‚Ð°Ð±Ð»Ð¸Ñ†Ñƒ
     local t_id = AllocTable()
     
-    -- Ð”Ð¾Ð±Ð°Ð²Ð»ÑÐµÐ¼ ÐºÐ¾Ð»Ð¾Ð½ÐºÐ¸
-    AddColumn(t_id, 1, "Ð¢Ð¸Ð¿", true, QTABLE_STRING_TYPE, 8)
-    AddColumn(t_id, 2, "Ð¦ÐµÐ½Ð°", true, QTABLE_DOUBLE_TYPE, 10)
-    AddColumn(t_id, 3, "Ð›Ð¾Ñ‚Ð¾Ð²", true, QTABLE_INT_TYPE, 10)
-    AddColumn(t_id, 4, "Ð¡ÑƒÐ¼Ð¼Ð°", true, QTABLE_DOUBLE_TYPE, 12)
+    AddColumn(t_id, 1, "Öåíà", true, QTABLE_DOUBLE_TYPE, 10)
+    AddColumn(t_id, 2, "Ëîòîâ", true, QTABLE_INT_TYPE, 10)
+    AddColumn(t_id, 3, "Ñóììà", true, QTABLE_DOUBLE_TYPE, 12)
     
-    -- Ð¡Ð¾Ð·Ð´Ð°ÐµÐ¼ Ð¾ÐºÐ½Ð¾ Ñ‚Ð°Ð±Ð»Ð¸Ñ†Ñ‹
     local window_id = CreateWindow(t_id)
-    SetWindowCaption(window_id, "AFLT - Ð¡Ñ‚Ð°ÐºÐ°Ð½ ÐºÐ¾Ñ‚Ð¸Ñ€Ð¾Ð²Ð¾Ðº")
-    SetWindowPos(window_id, 100, 100, 350, 500)
-    
-    -- Ð—Ð°Ð¿ÑƒÑÐºÐ°ÐµÐ¼ Ð¾ÑÐ½Ð¾Ð²Ð½Ð¾Ð¹ Ñ†Ð¸ÐºÐ»
-    is_run = true
+    SetWindowCaption(t_id, "AFLT - Ñòàêàí êîòèðîâîê")
+    SetWindowPos(t_id, 100, 100, 350, 500)
+
+    -- Ïåðåìåííûå äëÿ îòñëåæèâàíèÿ èçìåíåíèé
+    local last_quote = nil
+    local is_run = true
     
     while is_run do
-        update_stakan_table(t_id, "AFLT")
-        sleep(1000)  -- ÐžÐ±Ð½Ð¾Ð²Ð»ÐµÐ½Ð¸Ðµ ÐºÐ°Ð¶Ð´ÑƒÑŽ ÑÐµÐºÑƒÐ½Ð´Ñƒ
-        
-        -- ÐŸÑ€Ð¾Ð²ÐµÑ€ÑÐµÐ¼, Ð½Ðµ Ð·Ð°ÐºÑ€Ñ‹Ñ‚Ð¾ Ð»Ð¸ Ð¾ÐºÐ½Ð¾
-        if isWindowClosed(window_id) then
+        if IsWindowClosed(t_id) then
             is_run = false
-            message("ÐžÐºÐ½Ð¾ Ñ‚Ð°Ð±Ð»Ð¸Ñ†Ñ‹ Ð·Ð°ÐºÑ€Ñ‹Ñ‚Ð¾")
+            message("Îêíî òàáëèöû çàêðûòî")
+            break
         end
+        
+        local current_quote = getQuoteLevel2("QJSIM", "AFLT")
+        
+        -- Îáíîâëÿåì òîëüêî åñëè åñòü èçìåíåíèÿ
+        if current_quote and (not last_quote or has_quote_changed(last_quote, current_quote)) then
+            update_stakan_table(t_id, current_quote)
+            last_quote = current_quote  -- Ñîõðàíÿåì òåêóùèé ñòàêàí
+        end
+        
+        sleep(100)  -- Óìåíüøàåì çàäåðæêó äëÿ áûñòðîé ðåàêöèè
     end
     
+    DestroyTable(t_id)
     return true
 end
 
-function update_stakan_table(t_id, ticker)
-    local quote = getQuoteLevel2("QJSIM",ticker)
-    if not quote then
-        return
+function has_quote_changed(old_quote, new_quote)
+    -- Ïðîâåðÿåì èçìåíåíèÿ â ñòàêàíå ïîêóïîê
+    if #old_quote.bid ~= #new_quote.bid then
+        return true
     end
     
-    -- ÐžÑ‡Ð¸Ñ‰Ð°ÐµÐ¼ Ñ‚Ð°Ð±Ð»Ð¸Ñ†Ñƒ
-    Clear(t_id)
-    
-    local row = 0
-    
-    -- ÐŸÑ€Ð¾Ð´Ð°Ð¶Ð¸ (ASK) - Ð²Ñ‹Ð²Ð¾Ð´Ð¸Ð¼ ÑÐ²ÐµÑ€Ñ…Ñƒ Ð²Ð½Ð¸Ð·
-    if #quote.offer > 0 then
-        for i = math.min(5, #quote.offer), 1, -1 do
-            local level = quote.offer[i]
-            local sum = level.price * level.quantity
-            
-            InsertRow(t_id, -1)
-            SetCell(t_id, row, 1, "SELL")
-            SetCell(t_id, row, 2, string.format("%.2f", level.price))
-            SetCell(t_id, row, 3, tostring(level.quantity))
-            SetCell(t_id, row, 4, string.format("%.0f", sum))
-            
-            -- ÐšÑ€Ð°ÑÐ½Ñ‹Ð¹ Ñ†Ð²ÐµÑ‚ Ð´Ð»Ñ Ð¿Ñ€Ð¾Ð´Ð°Ð¶
-            SetColor(t_id, row, 1, RGB(255, 100, 100), RGB(0, 0, 0))
-            SetColor(t_id, row, 2, RGB(255, 100, 100), RGB(0, 0, 0))
-            
-            row = row + 1
+    for i = 1, #new_quote.bid do
+        if not old_quote.bid[i] or 
+           old_quote.bid[i].price ~= new_quote.bid[i].price or 
+           old_quote.bid[i].quantity ~= new_quote.bid[i].quantity then
+            return true
         end
     end
     
-    -- Ð Ð°Ð·Ð´ÐµÐ»Ð¸Ñ‚ÐµÐ»ÑŒÐ½Ð°Ñ ÑÑ‚Ñ€Ð¾ÐºÐ°
+    -- Ïðîâåðÿåì èçìåíåíèÿ â ñòàêàíå ïðîäàæ
+    if #old_quote.offer ~= #new_quote.offer then
+        return true
+    end
+    
+    for i = 1, #new_quote.offer do
+        if not old_quote.offer[i] or 
+           old_quote.offer[i].price ~= new_quote.offer[i].price or 
+           old_quote.offer[i].quantity ~= new_quote.offer[i].quantity then
+            return true
+        end
+    end
+    
+    return false
+end
+
+function update_stakan_table(t_id, quote)
+    if not quote or not quote.bid or not quote.offer then
+        return false
+    end
+    
+    Clear(t_id)
+    local row = 0
+    
+    -- Ïðîäàæè (ASK)
+    if #quote.offer > 0 then
+        for i = #quote.offer, 1, -1 do
+            local level = quote.offer[i]
+            if level then
+                local sum = level.price * level.quantity
+                InsertRow(t_id, -1)
+                SetCell(t_id, row, 1, string.format("%.2f", level.price))
+                SetCell(t_id, row, 2, tostring(level.quantity))
+                SetCell(t_id, row, 3, string.format("%.0f", sum))
+                
+                for col = 1, 3 do
+                    SetColor(t_id, row, col, RGB(255, 150, 150), RGB(40, 40, 40), RGB(255, 150, 150), RGB(40, 40, 40))
+                end
+                row = row + 1
+            end
+        end
+    end
+    
+    -- Ðàçäåëèòåëü
     InsertRow(t_id, -1)
     SetCell(t_id, row, 1, "---")
     SetCell(t_id, row, 2, "---")
     SetCell(t_id, row, 3, "---")
-    SetCell(t_id, row, 4, "---")
     row = row + 1
     
-    -- ÐŸÐ¾ÐºÑƒÐ¿ÐºÐ¸ (BID)
+    -- Ïîêóïêè (BID)
     if #quote.bid > 0 then
-        for i = 1, math.min(5, #quote.bid) do
+        for i = #quote.bid, 1, -1 do
             local level = quote.bid[i]
-            local sum = level.price * level.quantity
-            
-            InsertRow(t_id, -1)
-            SetCell(t_id, row, 1, "BUY")
-            SetCell(t_id, row, 2, string.format("%.2f", level.price))
-            SetCell(t_id, row, 3, tostring(level.quantity))
-            SetCell(t_id, row, 4, string.format("%.0f", sum))
-            
-            -- Ð—ÐµÐ»ÐµÐ½Ñ‹Ð¹ Ñ†Ð²ÐµÑ‚ Ð´Ð»Ñ Ð¿Ð¾ÐºÑƒÐ¿Ð¾Ðº
-            SetColor(t_id, row, 1, RGB(100, 255, 100), RGB(0, 0, 0))
-            SetColor(t_id, row, 2, RGB(100, 255, 100), RGB(0, 0, 0))
-            
-            row = row + 1
+            if level then
+                local sum = level.price * level.quantity
+                InsertRow(t_id, -1)
+                SetCell(t_id, row, 1, string.format("%.2f", level.price))
+                SetCell(t_id, row, 2, tostring(level.quantity))
+                SetCell(t_id, row, 3, string.format("%.0f", sum))
+                
+                for col = 1, 3 do
+                   SetColor(t_id, row, col, RGB(150, 255, 150), RGB(40, 40, 40), RGB(150, 255, 150), RGB(40, 40, 40))
+                end
+                row = row + 1
+            end
         end
     end
     
-    -- Ð˜Ñ‚Ð¾Ð³Ð¾Ð²Ð°Ñ Ð¸Ð½Ñ„Ð¾Ñ€Ð¼Ð°Ñ†Ð¸Ñ
-    InsertRow(t_id, -1)
-    SetCell(t_id, row, 1, "Ð’Ñ€ÐµÐ¼Ñ:")
-    SetCell(t_id, row, 2, os.date("%H:%M:%S"))
-    row = row + 1
-    
-    if #quote.bid > 0 and #quote.offer > 0 then
-        local spread = quote.offer[1].price - quote.bid[1].price
-        InsertRow(t_id, -1)
-        SetCell(t_id, row, 1, "Ð¡Ð¿Ñ€ÐµÐ´:")
-        SetCell(t_id, row, 2, string.format("%.2f", spread))
-    end
-end
-
-function OnStop()
-    is_run = false
+    return true
 end
