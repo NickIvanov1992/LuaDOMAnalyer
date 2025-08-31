@@ -549,11 +549,9 @@
 -- end
 
 function OnInit()
-
+    MyQuote = {}
 end
 function main()
-
-        MyQuote = {}
 
     local t_id = AllocTable()
     local l_id = AllocTable()
@@ -676,23 +674,35 @@ end
 
 function Update_Level_Table(table_Id,current_quote)
         if #current_quote.bid + #current_quote.offer > #MyQuote then
-            message("пиздец")
+            message("пиздец"..current_quote.bid[1].price)
         end
+            --Обновляем биды
+                 for i = 1, #current_quote.bid do
+                    if current_quote.bid[i].price then
+                        local isMatch = find_Element(MyQuote,current_quote.bid[i].price)
+                        if  isMatch ~= nil then
+                            MyQuote[isMatch][2] = current_quote.bid[i].quantity
+                        else
+                            AddOnQuoteValue(current_quote.bid[i].price,current_quote.bid[i].quantity)
+                        end
+                    end
+                 end
 
-            for i = 1, #current_quote.bid_count do
-            local isMatch = find_Element(MyQuote,current_quote.bid[i].price)
-            if  isMatch ~= nil then
-                MyQuote[isMatch][2] = current_quote.bid[i].quantity
-            else
-                AddOnQuoteValue(current_quote.bid[i].price,current_quote.bid[i].quantity)
-            end
-            end
 
-            if #MyQuote > 1 then
-                for i = 1, #MyQuote do
-                    message(""..MyQuote[i].Price.." "..MyQuote[i].Volume)
+            --Обновляем аски
+                for i = 1, #current_quote.offer do
+                    if current_quote.offer[i] then
+                        local isMatchOffer = find_Element(MyQuote,current_quote.offer[i].price)
+                        if  isMatchOffer ~= nil then
+                            MyQuote[isMatchOffer][2] = current_quote.offer[i].quantity
+                        else
+                            AddOnQuoteValue(current_quote.offer[i].price,current_quote.offer[i].quantity)
+                        end
+                    end
                 end
-            end
+                
+            Print_Values(table_Id,MyQuote)
+            
     end
 
     function find_Element(array,price)
@@ -714,4 +724,24 @@ function Update_Level_Table(table_Id,current_quote)
             Volume = volume
         }
         table.insert(MyQuote,newValue)
+    end
+
+    function Print_Values(id,array)
+        table.sort(array, function (a,b)
+            return a.Price < b.Price        
+        end)
+        if #array > 1 then
+                for i = 1, #array do
+                    message(""..array[i].Price.." "..array[i].Volume)
+                end
+        end
+        Clear(id)
+        local row = 1
+        for i = #array, 1, -1 do
+            InsertRow(id, -1)
+            SetCell(id, row, 1, tostring(array[i].Price))
+            SetCell(id, row, 2, tostring(array[i].Volume))
+
+            row = row + 1
+        end
     end
