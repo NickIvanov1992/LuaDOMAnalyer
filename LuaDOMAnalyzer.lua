@@ -673,9 +673,9 @@ function update_stakan_table(t_id, quote)
 end
 
 function Update_Level_Table(table_Id,current_quote)
-        if #current_quote.bid + #current_quote.offer > #MyQuote then
-            message("пиздец"..current_quote.bid[1].price)
-        end
+        -- if #current_quote.bid + #current_quote.offer > #MyQuote then
+        --     message("пиздец"..current_quote.bid[1].price)
+        -- end
             --Обновляем биды
                  for i = 1, #current_quote.bid do
                     if current_quote.bid[i].price then
@@ -701,7 +701,7 @@ function Update_Level_Table(table_Id,current_quote)
                     end
                 end
                 
-            Print_Values(table_Id,MyQuote)
+            Print_Values(table_Id,MyQuote,current_quote)
             
     end
 
@@ -726,15 +726,18 @@ function Update_Level_Table(table_Id,current_quote)
         table.insert(MyQuote,newValue)
     end
 
-    function Print_Values(id,array)
+    function Print_Values(id,array,quote)
+
+        Set_Filter(array,quote)
+
         table.sort(array, function (a,b)
             return a.Price < b.Price        
         end)
-        if #array > 1 then
-                for i = 1, #array do
-                    message(""..array[i].Price.." "..array[i].Volume)
-                end
-        end
+        -- if #array > 1 then
+        --         for i = 1, #array do
+        --             message(""..array[i].Price.." "..array[i].Volume)
+        --         end
+        -- end
         Clear(id)
         local row = 1
         for i = #array, 1, -1 do
@@ -745,3 +748,24 @@ function Update_Level_Table(table_Id,current_quote)
             row = row + 1
         end
     end
+
+    function Set_Filter(array,quote)
+        --по дефолту удалить неиспользуемые Уровни
+        local firstElement = quote.offer[#quote.offer].price
+        local lastElement = quote.bid[1].price
+        message("firstElement"..firstElement)
+        message("lastElement"..lastElement)
+            for i = 1, #array do
+                if array[i].Price < firstElement and array[i].Price > lastElement then
+                    local deleteFlag = true
+                     for j = 1, #quote.offer + #quote.bid do
+                        if array[i].Price == quote.offer[j].price or array[i].Price == quote.bid[j].price then
+                         deleteFlag = false
+                        end
+                        if deleteFlag == true then
+                        table.remove(array,i)
+                         end
+                    end
+                end
+            end
+        end  
