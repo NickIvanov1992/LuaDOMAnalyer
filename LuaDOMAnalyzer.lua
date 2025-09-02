@@ -753,18 +753,33 @@ function Update_Level_Table(table_Id,current_quote)
         --по дефолту удалить неиспользуемые Уровни
         local firstElement = quote.offer[#quote.offer].price
         local lastElement = quote.bid[1].price
-        message("firstElement"..firstElement)
-        message("lastElement"..lastElement)
+        -- message("firstElement"..firstElement)
+        -- message("lastElement"..lastElement)
+        -- message("firstArray"..array[1].Price)
             for i = 1, #array do
                 if array[i].Price < firstElement and array[i].Price > lastElement then
                     local deleteFlag = true
-                     for j = 1, #quote.offer + #quote.bid do
-                        if array[i].Price == quote.offer[j].price or array[i].Price == quote.bid[j].price then
+                     for j = 1, #quote.offer  do
+                        if array[i].Price == quote.offer[j].price then
                          deleteFlag = false
+                        --  message("false offer"..array[i].Price)
                         end
-                        if deleteFlag == true then
-                        table.remove(array,i)
-                         end
+                    end
+                     for j = 1, #quote.bid  do
+                        if array[i].Price == quote.bid[j].price then
+                         deleteFlag = false
+                        --  message("false bid"..array[i].Price)
+                        end
+                    end
+
+                     if deleteFlag == true then
+                        local deletePos = table.remove(array,i)
+                        message("deletePrice"..tostring(deletePos.Price))
+
+                        for k =1, #array do
+                            message(''..array[k].Price)
+                        end
+                        break
                     end
                 end
             end
