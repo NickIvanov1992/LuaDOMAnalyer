@@ -744,6 +744,7 @@ function Update_Level_Table(table_Id,current_quote)
             InsertRow(id, -1)
             SetCell(id, row, 1, tostring(array[i].Price))
             SetCell(id, row, 2, tostring(array[i].Volume))
+            SetStyle(quote, id, row, array[i].Price, array[i].Volume)
 
             row = row + 1
         end
@@ -776,11 +777,34 @@ function Update_Level_Table(table_Id,current_quote)
                         local deletePos = table.remove(array,i)
                         message("deletePrice"..tostring(deletePos.Price))
 
-                        for k =1, #array do
-                            message(''..array[k].Price)
-                        end
+                        -- for k =1, #array do
+                        --     message(''..array[k].Price)
+                        -- end
                         break
                     end
                 end
             end
         end  
+----------------------------------------------------------------------------------------------
+        function SetStyle(level2, tableId, row, price, volume)
+            local bestBid = level2.bid[#level2.bid].price
+            local bestAsk = level2.offer[1].price
+
+            --Выделить о=лучший Bid
+            if price == bestBid then
+               SetColor(tableId, row, 1, RGB(150, 255, 150), RGB(40, 40, 40), RGB(150, 255, 150), RGB(40, 40, 40))
+            elseif price == bestAsk then
+                SetColor(tableId, row, 1, RGB(255, 150, 150), RGB(40, 40, 40), RGB(255, 150, 150), RGB(40, 40, 40))
+                SetCell(tableId, row, 3, CreateProgressBar(75,100,10))
+            end
+
+        end
+
+        function CreateProgressBar(value,max_value, width)
+            local percent = value / max_value
+            local filled = math.floor(percent * width)
+            local empty = width - filled
+            local bar = "["..string.rep("?", filled)..string.rep("?", empty).."]"
+
+            return bar..string.format(" %.1f%%", percent * 100)
+        end
