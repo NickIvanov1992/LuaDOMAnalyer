@@ -561,6 +561,7 @@ function main()
 
     AddColumn(l_id, 1, "Цена", true, QTABLE_DOUBLE_TYPE, 10)
     AddColumn(l_id, 2, "Объем", true, QTABLE_INT_TYPE, 10)
+    AddColumn(l_id, 3, "Гистограмма", true, QTABLE_STRING_TYPE,30)
     
     local window_id = CreateWindow(t_id)
     local Level_Window = CreateWindow(l_id)
@@ -569,7 +570,7 @@ function main()
     SetWindowPos(t_id, 100, 100, 350, 500)
 
     SetWindowCaption(l_id,"Уровни")
-    SetWindowPos(l_id,50,50,300,800)
+    SetWindowPos(l_id,50,50,350,800)
 
     local last_quote = nil
     local is_run = true
@@ -745,6 +746,7 @@ function Update_Level_Table(table_Id,current_quote)
             SetCell(id, row, 1, tostring(array[i].Price))
             SetCell(id, row, 2, tostring(array[i].Volume))
             SetStyle(quote, id, row, array[i].Price, array[i].Volume)
+            SetCell(id, row, 3, CreateProgressBar(array[i].Volume,GetMaxVolume(quote),20))
 
             row = row + 1
         end
@@ -775,7 +777,7 @@ function Update_Level_Table(table_Id,current_quote)
 
                      if deleteFlag == true then
                         local deletePos = table.remove(array,i)
-                        message("deletePrice"..tostring(deletePos.Price))
+                        -- message("deletePrice"..tostring(deletePos.Price))
 
                         -- for k =1, #array do
                         --     message(''..array[k].Price)
@@ -795,7 +797,7 @@ function Update_Level_Table(table_Id,current_quote)
                SetColor(tableId, row, 1, RGB(150, 255, 150), RGB(40, 40, 40), RGB(150, 255, 150), RGB(40, 40, 40))
             elseif price == bestAsk then
                 SetColor(tableId, row, 1, RGB(255, 150, 150), RGB(40, 40, 40), RGB(255, 150, 150), RGB(40, 40, 40))
-                SetCell(tableId, row, 3, CreateProgressBar(75,100,10))
+                -- SetCell(tableId, row, 3, CreateProgressBar(20,100,10))
             end
 
         end
@@ -804,7 +806,23 @@ function Update_Level_Table(table_Id,current_quote)
             local percent = value / max_value
             local filled = math.floor(percent * width)
             local empty = width - filled
-            local bar = "["..string.rep("?", filled)..string.rep("?", empty).."]"
+            local bar = ""..string.rep("#", filled)..string.rep(" ", empty)..""
 
-            return bar..string.format(" %.1f%%", percent * 100)
+            return bar
+        end
+
+        function GetMaxVolume(myQuote)
+            local maxValue = 0
+            if #myQuote.bid > 0 then
+                for e = 1, #myQuote.bid do
+                    maxValue = math.max(maxValue,tonumber(myQuote.bid[e].quantity))
+                end
+            end
+
+            if #myQuote.offer > 0 then
+                for e = 1, #myQuote.offer do
+                    maxValue = math.max(maxValue,tonumber(myQuote.offer[e].quantity))
+                end
+            end
+            return maxValue
         end
