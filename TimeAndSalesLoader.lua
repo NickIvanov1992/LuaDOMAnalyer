@@ -51,6 +51,10 @@ function OnAllTrade(alltrade)
         end
         
         table.insert(filtered_trades, trade_info)
+
+         if #filtered_trades % 5 == 0 or os.time() - last_iceberg_analysis >= 30 then
+            analyzeIcebergPatterns()
+        end
         
         message(string.format("AFLT: %s - %.2f x %d [%s] Iceberg: %s", 
                time_str, trade_info.price, trade_info.volume, 

@@ -19,7 +19,6 @@ function main()
     while is_run do
         CreateLevel2("QJSIM","AFLT")
         FindIceberg()
-        analyzeIcebergPatterns()
         
         if  IsWindowClosed(l_id) then
             is_run = false
