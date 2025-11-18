@@ -1,11 +1,9 @@
 dofile(getScriptPath().."\\LevelViewer.lua")
 dofile(getScriptPath().."\\IcebergViewer.lua")
 dofile(getScriptPath().."\\TimeAndSalesLoader.lua")
-filtered_trades = {}
-orderbook_data = {
-    bids = {}, -- Заявки на покупку
-    asks = {}  -- Заявки на продажу
-}
+filtered_trades = filtered_trades or {}
+orderbook_data = orderbook_data or {bids = {}, asks = {}}
+orderbook_history = {}
 
 function OnInit()
     MyQuote = {}
@@ -15,10 +13,11 @@ end
 function main()
 
     local is_run = true
-
+    message("Начало работы")
+    
     while is_run do
         CreateLevel2("QJSIM","AFLT")
-        FindIceberg()
+        analyzeIcebergPatterns()
         
         if  IsWindowClosed(l_id) then
             is_run = false

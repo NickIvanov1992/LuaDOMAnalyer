@@ -65,7 +65,7 @@ function Update_Level_Table(table_Id,current_quote)
                 end
                 
             Print_Values(table_Id,MyQuote,current_quote)
-            
+            PrintValues()
     end
 
     function find_Element(array,price)

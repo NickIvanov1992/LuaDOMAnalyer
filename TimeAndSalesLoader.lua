@@ -56,9 +56,10 @@ function OnAllTrade(alltrade)
             analyzeIcebergPatterns()
         end
         
-        message(string.format("AFLT: %s - %.2f x %d [%s] Iceberg: %s", 
-               time_str, trade_info.price, trade_info.volume, 
-               trade_info.type_description, trade_info.iceberg_suspicion))
+        -- message(string.format("AFLT: %s - %.2f x %d [%s] Iceberg: %s", 
+        --        time_str, trade_info.price, trade_info.volume, 
+        --        trade_info.type_description, trade_info.iceberg_suspicion))
         
     end
 end
+
