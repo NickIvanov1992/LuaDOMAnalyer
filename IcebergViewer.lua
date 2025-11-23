@@ -1,8 +1,475 @@
-function FindIceberg ()
+local is_printing = false
+local is_printing = false
+local spoofing_id = nil -- ID таблицы для спуфинга
+
+-- Глобальные переменные для обнаружения спуфинга
+local spoofing_events = {}
+local SPOOFING_HISTORY_SIZE = 50
+local last_orderbook_snapshot = {}
+local spoofing_analysis_counter = 0
+local SPOOFING_ANALYSIS_INTERVAL = 5
+
+-- Инициализация таблицы спуфинга
+function InitSpoofingTable()
+    
+    SetWindowPos(spoofing_id, 100, 100, 600, 400)
+    SetWindowCaption(spoofing_id, "Обнаружение спуфинга - AFLT")
+    
+    -- Создаем колонки
+    AddColumn(spoofing_id, 1, "Время", true, QTABLE_STRING_TYPE, 15)
+    AddColumn(spoofing_id, 2, "Тип", true, QTABLE_STRING_TYPE, 12)
+    AddColumn(spoofing_id, 3, "Цена", true, QTABLE_DOUBLE_TYPE, 10)
+    AddColumn(spoofing_id, 4, "Объем", true, QTABLE_INT_TYPE, 10)
+    AddColumn(spoofing_id, 5, "Уровень", true, QTABLE_STRING_TYPE, 8)
+    AddColumn(spoofing_id, 6, "Скор", true, QTABLE_INT_TYPE, 8)
+    AddColumn(spoofing_id, 7, "Описание", true, QTABLE_STRING_TYPE, 25)
+end
+
+
+-- Основная функция обнаружения спуфинга
+function DetectSpoofing()
+    if not orderbook_data or #orderbook_data.bids == 0 or #orderbook_data.asks == 0 then
+        return
+    end
+    
+    local current_time = os.date("%H:%M:%S")
+    local spoofing_detected = false
+    
+    -- 1. Обнаружение крупных заявок далеко от текущей цены
+    local distant_large_orders = findDistantLargeOrders()
+    for _, order in ipairs(distant_large_orders) do
+        addSpoofingEvent({
+            time = current_time,
+            type = "DISTANT_LARGE_ORDER",
+            price = order.price,
+            volume = order.volume,
+            level = order.level,
+            score = order.score,
+            description = order.description
+        })
+        spoofing_detected = true
+    end
+    
+    -- 2. Обнаружение быстрого размещения/снятия заявок
+    local rapid_cancel_events = detectRapidCancelation()
+    for _, event in ipairs(rapid_cancel_events) do
+        addSpoofingEvent({
+            time = current_time,
+            type = "RAPID_CANCEL",
+            price = event.price,
+            volume = event.volume,
+            level = event.level,
+            score = event.score,
+            description = event.description
+        })
+        spoofing_detected = true
+    end
+    
+    -- 3. Обнаружение ложных стен
+    local fake_walls = detectFakeWalls()
+    for _, wall in ipairs(fake_walls) do
+        addSpoofingEvent({
+            time = current_time,
+            type = "FAKE_WALL",
+            price = wall.price,
+            volume = wall.volume,
+            level = wall.level,
+            score = wall.score,
+            description = wall.description
+        })
+        spoofing_detected = true
+    end
+    
+    -- 4. Обнаружение манипуляций лучшими ценами
+    local best_price_manipulation = detectBestPriceManipulation()
+    for _, manipulation in ipairs(best_price_manipulation) do
+        addSpoofingEvent({
+            time = current_time,
+            type = "PRICE_MANIPULATION",
+            price = manipulation.price,
+            volume = manipulation.volume,
+            level = manipulation.level,
+            score = manipulation.score,
+            description = manipulation.description
+        })
+        spoofing_detected = true
+    end
+    
+    -- 5. Обнаружение паттерна "насос и сброс"
+    local pump_dump_patterns = detectPumpAndDump()
+    for _, pattern in ipairs(pump_dump_patterns) do
+        addSpoofingEvent({
+            time = current_time,
+            type = "PUMP_DUMP",
+            price = pattern.price,
+            volume = pattern.volume,
+            level = pattern.level,
+            score = pattern.score,
+            description = pattern.description
+        })
+        spoofing_detected = true
+    end
+    
+    -- Обновляем таблицу если были обнаружены события
+    if spoofing_detected then
+        UpdateSpoofingTable()
+    end
+end
+
+-- Поиск крупных заявок далеко от текущей цены
+function findDistantLargeOrders()
+    local events = {}
+    local best_bid, best_ask = GetBestBidAsk()
+    
+    if best_bid == 0 or best_ask == 0 then return events end
+    
+    local spread = best_ask - best_bid
+    local distant_threshold = spread * 3 -- В 3 раза дальше спреда
+    
+    -- Проверяем биды (покупки)
+    for i, bid in ipairs(orderbook_data.bids) do
+        local distance_from_best = best_bid - bid.price
+        if distance_from_best > distant_threshold then
+            local volume_ratio = bid.quantity / getAverageVisibleVolume()
+            if volume_ratio > 5 then -- Объем в 5 раз больше среднего
+                local score = math.min(100, math.floor(volume_ratio * 10 + distance_from_best / spread * 5))
+                table.insert(events, {
+                    price = bid.price,
+                    volume = bid.quantity,
+                    level = "BID_" .. i,
+                    score = score,
+                    description = string.format("Крупный бид далеко от рынка (x%.1f от среднего)", volume_ratio)
+                })
+            end
+        end
+    end
+    
+    -- Проверяем аски (продажи)
+    for i, ask in ipairs(orderbook_data.asks) do
+        local distance_from_best = ask.price - best_ask
+        if distance_from_best > distant_threshold then
+            local volume_ratio = ask.quantity / getAverageVisibleVolume()
+            if volume_ratio > 5 then
+                local score = math.min(100, math.floor(volume_ratio * 10 + distance_from_best / spread * 5))
+                table.insert(events, {
+                    price = ask.price,
+                    volume = ask.quantity,
+                    level = "ASK_" .. i,
+                    score = score,
+                    description = string.format("Крупный аск далеко от рынка (x%.1f от среднего)", volume_ratio)
+                })
+            end
+        end
+    end
+    
+    return events
+end
+
+-- Обнаружение быстрого размещения/снятия заявок
+function detectRapidCancelation()
+    local events = {}
+    
+    if #orderbook_history < 2 then return events end
+    
+    local current_snapshot = orderbook_history[#orderbook_history]
+    local previous_snapshot = orderbook_history[#orderbook_history - 1]
+    
+    -- Анализируем изменения в бидах
+    analyzeOrderbookSideForCancelation(previous_snapshot.bids, current_snapshot.bids, "BID", events)
+    -- Анализируем изменения в асках
+    analyzeOrderbookSideForCancelation(previous_snapshot.asks, current_snapshot.asks, "ASK", events)
+    
+    return events
+end
+
+function analyzeOrderbookSideForCancelation(previous_side, current_side, side_type, events)
+    local best_bid, best_ask = GetBestBidAsk()
+    local best_price = (side_type == "BID") and best_bid or best_ask
+    
+    for _, prev_order in ipairs(previous_side) do
+        local order_found = false
+        local is_large_order = tonumber(prev_order.quantity) > tonumber(getAverageVisibleVolume()) * 3
+        
+        -- Ищем эту заявку в текущем стакане
+        for _, curr_order in ipairs(current_side) do
+            if math.abs(prev_order.price - curr_order.price) < 0.001 then
+                order_found = true
+                break
+            end
+        end
+        
+        -- Если крупная заявка исчезла и была близко к лучшей цене
+        if not order_found and is_large_order then
+            local distance_from_best = math.abs(prev_order.price - best_price)
+            local spread = best_ask - best_bid
+            
+            if distance_from_best <= spread * 2 then -- В пределах 2 спредов от лучшей цены
+                local score = math.min(100, math.floor((prev_order.quantity / getAverageVisibleVolume()) * 8))
+                table.insert(events, {
+                    price = prev_order.price,
+                    volume = prev_order.quantity,
+                    level = side_type .. "_CANCEL",
+                    score = score,
+                    description = "Быстрое снятие крупной заявки"
+                })
+            end
+        end
+    end
+end
+
+-- Обнаружение ложных стен
+function detectFakeWalls()
+    local events = {}
+    local best_bid, best_ask = GetBestBidAsk()
+    
+    if best_bid == 0 or best_ask == 0 then return events end
+    
+    local average_volume = getAverageVisibleVolume()
+    
+    -- Проверяем биды на наличие стен
+    for i, bid in ipairs(orderbook_data.bids) do
+        if i <= 5 then -- Только первые 5 уровней
+            local volume_ratio = bid.quantity / average_volume
+            if volume_ratio > 10 then -- Очень крупная заявка
+                -- Проверяем, не является ли это стеной
+                local is_wall = true
+                local next_volume_ratio = 0
+                
+                -- Проверяем следующий уровень
+                if orderbook_data.bids[i + 1] then
+                    next_volume_ratio = orderbook_data.bids[i + 1].quantity / average_volume
+                    if next_volume_ratio > 5 then
+                        is_wall = false -- Следующий уровень тоже крупный, вероятно не спуфинг
+                    end
+                end
+                
+                if is_wall then
+                    local score = math.min(100, math.floor(volume_ratio * 6))
+                    table.insert(events, {
+                        price = bid.price,
+                        volume = bid.quantity,
+                        level = "BID_WALL",
+                        score = score,
+                        description = string.format("Возможная ложная стена (x%.1f от среднего)", volume_ratio)
+                    })
+                end
+            end
+        end
+    end
+    
+    -- Проверяем аски на наличие стен
+    for i, ask in ipairs(orderbook_data.asks) do
+        if i <= 5 then
+            local volume_ratio = ask.quantity / average_volume
+            if volume_ratio > 10 then
+                local is_wall = true
+                local next_volume_ratio = 0
+                
+                if orderbook_data.asks[i + 1] then
+                    next_volume_ratio = orderbook_data.asks[i + 1].quantity / average_volume
+                    if next_volume_ratio > 5 then
+                        is_wall = false
+                    end
+                end
+                
+                if is_wall then
+                    local score = math.min(100, math.floor(volume_ratio * 6))
+                    table.insert(events, {
+                        price = ask.price,
+                        volume = ask.quantity,
+                        level = "ASK_WALL",
+                        score = score,
+                        description = string.format("Возможная ложная стена (x%.1f от среднего)", volume_ratio)
+                    })
+                end
+            end
+        end
+    end
+    
+    return events
+end
+
+-- Обнаружение манипуляций лучшими ценами
+function detectBestPriceManipulation()
+    local events = {}
+    
+    if #orderbook_history < 3 then return events end
+    
+    local current_snapshot = orderbook_history[#orderbook_history]
+    local previous_snapshot = orderbook_history[#orderbook_history - 1]
+    local older_snapshot = orderbook_history[#orderbook_history - 2]
+    
+    -- Анализ изменений лучших цен
+    local current_best_bid = current_snapshot.bids[1] and current_snapshot.bids[1].price or 0
+    local previous_best_bid = previous_snapshot.bids[1] and previous_snapshot.bids[1].price or 0
+    local older_best_bid = older_snapshot.bids[1] and older_snapshot.bids[1].price or 0
+    
+    local current_best_ask = current_snapshot.asks[1] and current_snapshot.asks[1].price or 0
+    local previous_best_ask = previous_snapshot.asks[1] and previous_snapshot.asks[1].price or 0
+    local older_best_ask = older_snapshot.asks[1] and older_snapshot.asks[1].price or 0
+    
+    -- Проверяем резкие изменения лучших цен без значительных сделок
+    local bid_change1 = math.abs(current_best_bid - previous_best_bid)
+    local bid_change2 = math.abs(previous_best_bid - older_best_bid)
+    local ask_change1 = math.abs(current_best_ask - previous_best_ask)
+    local ask_change2 = math.abs(previous_best_ask - older_best_ask)
+    
+    local price_tolerance = getPriceTolerance(current_best_bid)
+    
+    if bid_change1 > price_tolerance and bid_change2 > price_tolerance then
+        table.insert(events, {
+            price = current_best_bid,
+            volume = 0,
+            level = "BEST_BID",
+            score = 75,
+            description = "Подозрительные резкие изменения лучшего бида"
+        })
+    end
+    
+    if ask_change1 > price_tolerance and ask_change2 > price_tolerance then
+        table.insert(events, {
+            price = current_best_ask,
+            volume = 0,
+            level = "BEST_ASK",
+            score = 75,
+            description = "Подозрительные резкие изменения лучшего аска"
+        })
+    end
+    
+    return events
+end
+
+-- Обнаружение паттерна "насос и сброс"
+function detectPumpAndDump()
+    local events = {}
+    
+    -- Анализируем последние сделки на наличие паттернов
+    if #filtered_trades < 10 then return events end
+    
+    local recent_trades = {}
+    for i = math.max(1, #filtered_trades - 20), #filtered_trades do
+        table.insert(recent_trades, filtered_trades[i])
+    end
+    
+    -- Ищем последовательность: несколько крупных покупок -> резкое движение цены -> крупные продажи
+    local large_buys = 0
+    local large_sells = 0
+    local price_increase = 0
+    local first_price = recent_trades[1].price
+    local last_price = recent_trades[#recent_trades].price
+    
+    for i, trade in ipairs(recent_trades) do
+        if trade.volume > getAverageTradeVolume() * 3 then
+            if trade.direction == "BUY" then
+                large_buys = large_buys + 1
+            else
+                large_sells = large_sells + 1
+            end
+        end
+    end
+    
+    price_increase = ((last_price - first_price) / first_price) * 100
+    
+    -- Если есть паттерн насоса и сброса
+    if large_buys >= 2 and large_sells >= 2 and price_increase > 0.5 then
+        table.insert(events, {
+            price = last_price,
+            volume = 0,
+            level = "PATTERN",
+            score = 85,
+            description = string.format("Паттерн 'насос и сброс' (+%.2f%%)", price_increase)
+        })
+    end
+    
+    return events
+end
+
+-- Вспомогательные функции для спуфинга
+function getAverageVisibleVolume()
+    local total_volume = 0
+    local count = 0
+    
+    for _, bid in ipairs(orderbook_data.bids) do
+        total_volume = total_volume + bid.quantity
+        count = count + 1
+        if count >= 10 then break end
+    end
+    
+    for _, ask in ipairs(orderbook_data.asks) do
+        total_volume = total_volume + ask.quantity
+        count = count + 1
+        if count >= 20 then break end
+    end
+    
+    return count > 0 and total_volume / count or 1000
+end
+
+function addSpoofingEvent(event)
+    table.insert(spoofing_events, 1, event) -- Добавляем в начало
+    
+    -- Ограничиваем размер истории
+    if #spoofing_events > SPOOFING_HISTORY_SIZE then
+        table.remove(spoofing_events)
+    end
+end
+
+-- Обновление таблицы спуфинга
+function UpdateSpoofingTable()
+    if not spoofing_id then
+        InitSpoofingTable()
+    end
+    
+    Clear(spoofing_id)
+    
+    for i, event in ipairs(spoofing_events) do
+        if i > 20 then break end -- Показываем только последние 20 событий
+        
+        InsertRow(spoofing_id, -1)
+        
+        SetCell(spoofing_id, i, 1, event.time)
+        SetCell(spoofing_id, i, 2, event.type)
+        SetCell(spoofing_id, i, 3, tostring(event.price))
+        SetCell(spoofing_id, i, 4, tostring(event.volume))
+        SetCell(spoofing_id, i, 5, event.level)
+        SetCell(spoofing_id, i, 6, tostring(event.score))
+        SetCell(spoofing_id, i, 7, event.description)
+        
+        -- Устанавливаем цвет в зависимости от уровня угрозы
+        setSpoofingRowColor(i, event.score)
+    end
+end
+
+function setSpoofingRowColor(row, score)
+    local text_color, background_color
+    
+    if score >= 80 then
+        text_color = RGB(255, 255, 255)
+        background_color = RGB(200, 0, 0) -- Красный для высокого риска
+    elseif score >= 60 then
+        text_color = RGB(255, 255, 255)
+        background_color = RGB(255, 140, 0) -- Оранжевый для среднего риска
+    else
+        text_color = RGB(255, 255, 255)
+        background_color = RGB(100, 100, 100) -- Серый для низкого риска
+    end
+    
+    for col = 1, 7 do
+        SetColor(spoofing_id, row, col, text_color, background_color, text_color, background_color)
+    end
+end
+
+
+
+
+
+function FindIceberg()
     if #IcebergArray == 0 or IcebergArray == nil then
         Initial()
-        PrintValues()
+    else
+        -- Принудительная синхронизация при ручном вызове
+        SyncWithOrderbook()
     end
+    PrintValues()
 end
 
 function Initial()
@@ -10,70 +477,220 @@ function Initial()
         message("Пустой стакан")
         return
     end
+    
+    -- Очищаем массив перед инициализацией
+    IcebergArray = {}
+    
     for i = 1, #MyQuote do
-         local defaultTable = {
-        Price = MyQuote[i].Price,
-        Type = "null",
-        direction = "buy/sell",
-        Volume = 0,
-        Avg_Volume = 0
-
+        local defaultTable = {
+            Price = MyQuote[i].Price,
+            Type = "",  -- вместо "null"
+            direction = "",  -- вместо "buy/sell"
+            Volume = 0,
+            Avg_Volume = 0,
+            TotalBeyond = 0  -- Новый столбец: объем айсбергов за пределами лучших цен
         }
-           table.insert(IcebergArray,defaultTable)
+        table.insert(IcebergArray, defaultTable)
     end
-
 end
 
 
 function PrintValues()
-     if #IcebergArray == 0 then
-         Clear(iceberg_id)
+
+    -- Защита от рекурсивных вызовов
+    if is_printing then
         return
     end
-    message("Вывод айсбергов"..#IcebergArray)
 
-Clear(iceberg_id)
+    is_printing = true
 
-    table.sort(IcebergArray, function (a,b)
-            return tonumber(a.Price ) < tonumber(b.Price)      
-        end)
+    if #IcebergArray == 0 then
+        Clear(iceberg_id)
+        is_printing = false
+        return
+    end
+
+     -- Получаем текущие лучшие цены
+    local best_bid, best_ask = GetBestBidAsk()
+
+    -- Рассчитываем суммарные объемы айсбергов выше Ask и ниже Bid
+    CalculateTotalBeyondVolumes(tonumber(best_bid), tonumber(best_ask))
+
+    -- Ограничиваем количество строк для безопасности
+    local max_rows = 100
+    local display_count = math.min(#IcebergArray, max_rows)
+    
+    Clear(iceberg_id)
+
+    -- Сортируем по цене (от высокой к низкой для отображения)
+    table.sort(IcebergArray, function(a, b)
+        return tonumber(a.Price) > tonumber(b.Price)
+    end)
 
     local row = 1
-        for i = #IcebergArray, 1, -1 do
-            InsertRow(iceberg_id, -1)
-            SetCell(iceberg_id, row, 1, tostring(IcebergArray[i].Price))
-            SetCell(iceberg_id, row, 2, tostring(IcebergArray[i].Type))
-            SetCell(iceberg_id, row, 3, tostring(IcebergArray[i].direction))
-            SetCell(iceberg_id, row, 4, tostring(IcebergArray[i].Avg_Volume))
+    for i = 1, #IcebergArray do
+        InsertRow(iceberg_id, -1)
 
-            SetIcebergColor(IcebergArray[i].Type,row)
-            row = row + 1
-        end
+        local current_price = tonumber(IcebergArray[i].Price)
+        local is_best_bid = (math.abs(current_price - best_bid) < 0.001)
+        local is_best_ask = (math.abs(current_price - best_ask) < 0.001)
 
-    
+        SetCell(iceberg_id, row, 1, tostring(IcebergArray[i].Price))
+        SetCell(iceberg_id, row, 2, tostring(IcebergArray[i].Type))
+        SetCell(iceberg_id, row, 3, tostring(IcebergArray[i].direction))
+        SetCell(iceberg_id, row, 4, tostring(IcebergArray[i].Volume))
+        SetCell(iceberg_id, row, 5, tostring(IcebergArray[i].Avg_Volume))
+        SetCell(iceberg_id, row, 6, tostring(IcebergArray[i].TotalBeyond))  -- Новый столбец
 
-    
-end
-
- function SetIcebergColor(type,row)
-            if type == "SELL" then
-                SetColor(iceberg_id, row, 1, RGB(150, 255, 150), RGB(40, 40, 40), RGB(150, 255, 150), RGB(40, 40, 40))
-                SetColor(iceberg_id, row, 2, RGB(150, 255, 150), RGB(40, 40, 40), RGB(150, 255, 150), RGB(40, 40, 40))
-                SetColor(iceberg_id, row, 3, RGB(150, 255, 150), RGB(40, 40, 40), RGB(150, 255, 150), RGB(40, 40, 40))
-                SetColor(iceberg_id, row, 4, RGB(150, 255, 150), RGB(40, 40, 40), RGB(150, 255, 150), RGB(40, 40, 40))
+        -- Устанавливаем цвет ТОЛЬКО для столбца с ценой
+        if is_best_bid then
+            -- Выделяем только столбец цены для лучшего бида
+            SetBestBidPriceColor(row)
+            -- Остальные столбцы - стандартные цвета в зависимости от направления
+            SetOtherColumnsColor(row, IcebergArray[i].direction)
+        elseif is_best_ask then
+            -- Выделяем только столбец цены для лучшего аска
+            SetBestAskPriceColor(row)
+            -- Остальные столбцы - стандартные цвета в зависимости от направления
+            SetOtherColumnsColor(row, IcebergArray[i].direction)
+        else
+            -- Стандартные цвета для всех столбцов
+            if IcebergArray[i].direction == "BUY" then
+                SetIcebergColor("BUY", row)
+            elseif IcebergArray[i].direction == "SELL" then
+                SetIcebergColor("SELL", row)
             else
-                SetColor(iceberg_id, row, 1, RGB(255, 150, 150), RGB(40, 40, 40), RGB(255, 150, 150), RGB(40, 40, 40))
-                SetColor(iceberg_id, row, 2, RGB(255, 150, 150), RGB(40, 40, 40), RGB(255, 150, 150), RGB(40, 40, 40))
-                SetColor(iceberg_id, row, 3, RGB(255, 150, 150), RGB(40, 40, 40), RGB(255, 150, 150), RGB(40, 40, 40))
-                SetColor(iceberg_id, row, 4, RGB(255, 150, 150), RGB(40, 40, 40), RGB(255, 150, 150), RGB(40, 40, 40))
+                -- Стандартный цвет для всех столбцов
+                for col = 1, 6 do
+                    SetColor(iceberg_id, row, col, RGB(255, 255, 255), RGB(40, 40, 40), RGB(255, 255, 255), RGB(40, 40, 40))
+                end
             end
         end
+        
+        row = row + 1
+    end
+    is_printing = false
+end
+
+function CalculateTotalBeyondVolumes(best_bid, best_ask)
+    if not best_bid or not best_ask or best_bid == 0 or best_ask == 0 then
+        return
+    end
+
+    local total_above_ask = 0
+    local total_below_bid = 0
+
+    -- Сначала вычисляем общие суммы
+     for i = 1, #IcebergArray do
+        local iceberg = IcebergArray[i]
+        if iceberg and iceberg.Price then
+            local price = tonumber(iceberg.Price)
+            local volume = tonumber(iceberg.Volume) or 0
+        
+        -- Проверяем, является ли это айсбергом (имеет направление и объем)
+        if iceberg.direction and iceberg.direction ~= "" and volume > 0 then
+            if price > best_ask then
+                -- Айсберг выше лучшего аска
+                total_above_ask = total_above_ask + volume
+            elseif price < best_bid then
+                -- Айсберг ниже лучшего бида
+                total_below_bid = total_below_bid + volume
+            end
+        end
+    end
+end
+
+    -- Теперь устанавливаем значения для каждой строки
+    for i = 1, #IcebergArray do
+        local iceberg = IcebergArray[i]
+        if iceberg and iceberg.Price then
+            local price = tonumber(iceberg.Price)
+        
+        if price > best_ask then
+            iceberg.TotalBeyond = total_above_ask
+        elseif price < best_bid then
+            iceberg.TotalBeyond = total_below_bid
+        else
+            -- Для цен внутри спреда оставляем 0 или можно показать другую информацию
+            iceberg.TotalBeyond = 0
+        end
+    end
+end
+end
+
+
+-- Функции для выделения только столбца цены
+function SetBestBidPriceColor(row)
+    -- Только столбец цены - яркий синий
+    SetColor(iceberg_id, row, 1, RGB(200, 200, 255), RGB(0, 0, 100), RGB(200, 200, 255), RGB(0, 0, 100))
+end
+
+function SetBestAskPriceColor(row)
+    -- Только столбец цены - яркий оранжевый
+    SetColor(iceberg_id, row, 1, RGB(255, 220, 180), RGB(100, 50, 0), RGB(255, 220, 180), RGB(100, 50, 0))
+end
+
+-- Функция для установки цвета остальных столбцов
+function SetOtherColumnsColor(row, direction)
+    if direction == "BUY" then
+        -- Столбцы 2-6 красные для покупок
+        for col = 2, 6 do
+            SetColor(iceberg_id, row, col, RGB(255, 150, 150), RGB(40, 40, 40), RGB(255, 150, 150), RGB(40, 40, 40))
+        end
+    elseif direction == "SELL" then
+        -- Столбцы 2-6 зеленые для продаж
+        for col = 2, 6 do
+            SetColor(iceberg_id, row, col, RGB(150, 255, 150), RGB(40, 40, 40), RGB(150, 255, 150), RGB(40, 40, 40))
+        end
+    else
+        -- Столбцы 2-6 стандартные
+        for col = 2, 6 do
+            SetColor(iceberg_id, row, col, RGB(255, 255, 255), RGB(40, 40, 40), RGB(255, 255, 255), RGB(40, 40, 40))
+        end
+    end
+end
+
+function SetBestBidColor(row)
+    -- Яркий синий цвет для лучшего бида
+    SetColor(iceberg_id, row, 1, RGB(200, 200, 255), RGB(0, 0, 100), RGB(200, 200, 255), RGB(0, 0, 100))
+    SetColor(iceberg_id, row, 2, RGB(200, 200, 255), RGB(0, 0, 100), RGB(200, 200, 255), RGB(0, 0, 100))
+    SetColor(iceberg_id, row, 3, RGB(200, 200, 255), RGB(0, 0, 100), RGB(200, 200, 255), RGB(0, 0, 100))
+    SetColor(iceberg_id, row, 4, RGB(200, 200, 255), RGB(0, 0, 100), RGB(200, 200, 255), RGB(0, 0, 100))
+    SetColor(iceberg_id, row, 5, RGB(200, 200, 255), RGB(0, 0, 100), RGB(200, 200, 255), RGB(0, 0, 100))
+end
+
+function SetBestAskColor(row)
+    -- Яркий оранжевый цвет для лучшего аска
+    SetColor(iceberg_id, row, 1, RGB(255, 220, 180), RGB(100, 50, 0), RGB(255, 220, 180), RGB(100, 50, 0))
+    SetColor(iceberg_id, row, 2, RGB(255, 220, 180), RGB(100, 50, 0), RGB(255, 220, 180), RGB(100, 50, 0))
+    SetColor(iceberg_id, row, 3, RGB(255, 220, 180), RGB(100, 50, 0), RGB(255, 220, 180), RGB(100, 50, 0))
+    SetColor(iceberg_id, row, 4, RGB(255, 220, 180), RGB(100, 50, 0), RGB(255, 220, 180), RGB(100, 50, 0))
+    SetColor(iceberg_id, row, 5, RGB(255, 220, 180), RGB(100, 50, 0), RGB(255, 220, 180), RGB(100, 50, 0))
+end
+
+ function SetIcebergColor(type, row)
+    if type == "SELL" then
+        -- Зеленый для продаж
+        for col = 1, 6 do
+            SetColor(iceberg_id, row, col, RGB(150, 255, 150), RGB(40, 40, 40), RGB(150, 255, 150), RGB(40, 40, 40))
+        end
+    else
+        -- Красный для покупок
+        for col = 1, 6 do
+            SetColor(iceberg_id, row, col, RGB(255, 150, 150), RGB(40, 40, 40), RGB(255, 150, 150), RGB(40, 40, 40))
+        end
+    end
+end
 -----------------------------------------------------------------------------------
 
+local sync_counter = 0
+local SYNC_INTERVAL = 10  -- синхронизировать каждые 10 обновлений стакана
 
 -- Функция для обновления стакана
 function OnQuote(class_code, sec_code)
     if sec_code == "AFLT" and class_code == "QJSIM" then
+
+        
         -- Сохраняем предыдущий снимок стакана
         saveOrderbookSnapshot()
         -- Получаем стакан
@@ -97,8 +714,58 @@ function OnQuote(class_code, sec_code)
                 quantity = asks[i].quantity
             })
         end
+
+        -- ОБНОВЛЯЕМ TotalBeyond при каждом обновлении стакана
+        local best_bid, best_ask = GetBestBidAsk()
+        CalculateTotalBeyondVolumes(tonumber(best_bid), tonumber(best_ask))
+
+        -- Периодическая синхронизация с текущим стаканом
+        sync_counter = sync_counter + 1
+        if sync_counter >= SYNC_INTERVAL then
+            SyncWithOrderbook()
+            sync_counter = 0
+            -- UpdateStatistic()
+        end
+
+         -- Периодический анализ спуфинга
+        spoofing_analysis_counter = spoofing_analysis_counter + 1
+        if spoofing_analysis_counter >= SPOOFING_ANALYSIS_INTERVAL then
+            DetectSpoofing()
+            spoofing_analysis_counter = 0
+        end
+
+         -- Запускаем анализ айсбергов
+        safe_AnalyzeIcebergPatterns()  --может не нужно?
+
+        safe_PrintValues()
     end
     
+end
+
+-- Функция для ручного запуска обнаружения спуфинга
+function FindSpoofing()
+    message("Запуск обнаружения спуфинга...")
+    DetectSpoofing()
+    UpdateSpoofingTable()
+end
+
+-- Функция для очистки таблицы спуфинга
+function ClearSpoofingTable()
+    spoofing_events = {}
+    if spoofing_id then
+        Clear(spoofing_id)
+    end
+    message("Таблица спуфинга очищена")
+end
+
+
+
+
+-- Добавляем функцию для принудительного обновления всех данных
+function UpdateIcebergTable()
+    local best_bid, best_ask = GetBestBidAsk()
+    CalculateTotalBeyondVolumes(tonumber(best_bid), tonumber(best_ask))
+    safe_PrintValues()
 end
 
 function getCumulativeVolumeInOrderbook(price, direction, depth_levels)
@@ -206,7 +873,6 @@ function checkIcebergSuspicion(trade)
         --        checkRepeatedTrades(trade.price, trade.volume, trade.direction) and 2 or 0,
         --        disappearance_score))
     end
-    PrintValues()
     return suspicion
 end
 
@@ -326,10 +992,10 @@ end
 
 -- Дополнительная функция для анализа паттернов айсбергов
 -- Глобальные переменные для контроля частоты сообщений
-last_iceberg_analysis = 0
-analysis_interval = 10 -- секунд между анализами
-reported_clusters = {} -- таблица уже сообщенных кластеров
-volume_statistics = {mean = 1000, std_dev = 500} -- Значения по умолчанию
+last_iceberg_analysis = last_iceberg_analysis or 0
+analysis_interval = 20 -- секунд между анализами
+reported_clusters = reported_clusters or {} -- таблица уже сообщенных кластеров
+volume_statistics = volume_statistics or {mean = 1000, std_dev = 500} -- Значения по умолчанию
 
 -- Глобальная таблица для хранения истории стаканов
 MAX_ORDERBOOK_HISTORY = 10
@@ -450,7 +1116,7 @@ function analyzeIcebergPatterns()
 
      -- Анализ кластеров с улучшенной фильтрацией и проверкой уникальности
     local processed_clusters = {}
-
+    local found_new_icebergs = false
 
     for i, candidate in ipairs(iceberg_candidates) do
         local cluster_key = string.format("%s_%.4f_%d", candidate.direction, candidate.price, math.floor(candidate.timestamp / 300)) -- Группируем по 5-минутным интервалам
@@ -491,6 +1157,7 @@ function analyzeIcebergPatterns()
                 if not reported_clusters[report_key] or (current_time - reported_clusters[report_key]) > 1800 then -- 30 минут
                     
                     reported_clusters[report_key] = current_time
+                    found_new_icebergs = true
                     new_clusters_found = true
                     
                     -- Детальная информация о кластере
@@ -531,40 +1198,69 @@ function analyzeIcebergPatterns()
         -- message(string.format("Iceberg analysis: %d candidates, %d clusters found", 
         --        #iceberg_candidates, getTableSize(processed_clusters)))
     end
-    PrintValues()
+    safe_PrintValues()
 end
 
-function AddIcebergOrders(price,type,direction,volume,avg_volume)
-    if (#MyQuote > 0) then
-        --Добавим акутальные цены стакана
-        local found = false
-        message("IcebergArray"..#IcebergArray)
+function AddIcebergOrders(price, type, direction, volume, avg_volume)
+    local found = false
 
-        if (#IcebergArray > 0) then
-            for i = 1, #IcebergArray do
-            if(IcebergArray[i].Price == price) then
-                IcebergArray[i].Type = type
-                IcebergArray[i].direction = direction
-                IcebergArray[i].Volume = volume
-                IcebergArray[i].Avg_Volume = avg_volume
-                found = true
+    -- Сначала убедимся, что цена есть в массиве
+    local price_key = string.format("%.4f", tonumber(price))
+    local price_exists = false
+    
+    for i = 1, #IcebergArray do
+        if IcebergArray[i] and IcebergArray[i].Price then
+            local existing_price_key = string.format("%.4f", tonumber(IcebergArray[i].Price))
+            if existing_price_key == price_key then
+                price_exists = true
+                break
             end
         end
-        end
-        
-         if not found then
-                local newOrder = {
-                Price = price,
-                Type = type,
-                direction = direction,
-                Volume = volume,
-                Avg_Volume = avg_volume
-                }
-                table.insert(IcebergArray, newOrder)
-                message("Added order^ "..#IcebergArray)
-        end
-        
     end
+    
+    -- Если цены нет, добавляем её
+    if not price_exists then
+        local newOrder = {
+            Price = price,
+            Type = type,
+            direction = direction,
+            Volume = volume,
+            Avg_Volume = avg_volume,
+            TotalBeyond = 0  -- Новый столбец
+        }
+        table.insert(IcebergArray, newOrder)
+        found = true
+        
+    else
+        -- Ищем существующую запись с такой ценой для обновления
+        for i = 1, #IcebergArray do
+            if IcebergArray[i] and IcebergArray[i].Price then
+                local existing_price_key = string.format("%.4f", tonumber(IcebergArray[i].Price))
+                if existing_price_key == price_key then
+                    -- Обновляем существующую запись
+                    IcebergArray[i].Type = type
+                    IcebergArray[i].direction = direction
+                    IcebergArray[i].Volume = volume
+                    IcebergArray[i].Avg_Volume = avg_volume
+                     -- TotalBeyond будет рассчитан автоматически в CalculateTotalBeyondVolumes
+                    found = true
+                    
+                    break
+                end
+            end
+        end
+    end
+    
+    -- Сортируем массив по цене
+    table.sort(IcebergArray, function(a, b)
+        return tonumber(a.Price) < tonumber(b.Price)
+    end)
+
+     -- ОБНОВЛЯЕМ данные TotalBeyond сразу после добавления/обновления айсберга
+    local best_bid, best_ask = GetBestBidAsk()
+    CalculateTotalBeyondVolumes(tonumber(best_bid), tonumber(best_ask))
+    
+    return found
 end
 -------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------
@@ -1150,4 +1846,132 @@ function getCurrentSpread()
     local best_ask = orderbook_data.asks[1].price
     
     return best_ask - best_bid
+end
+
+function safe_AnalyzeIcebergPatterns()
+    local status, err = pcall(analyzeIcebergPatterns)
+    if not status then
+        message("Ошибка в analyzeIcebergPatterns: " .. tostring(err))
+    end
+end
+
+function safe_PrintValues()
+    local status, err = pcall(PrintValues)
+    if not status then
+        message("Ошибка в PrintValues: " .. tostring(err))
+    end
+end
+
+
+function SyncWithOrderbook()
+    if #MyQuote == 0 then
+        return
+    end
+    
+    
+    -- Создаем временную таблицу для быстрого поиска существующих цен
+    local existing_prices = {}
+    for i = 1, #IcebergArray do
+        if IcebergArray[i] and IcebergArray[i].Price then
+            local price_key = string.format("%.4f", tonumber(IcebergArray[i].Price))
+            existing_prices[price_key] = IcebergArray[i]
+        end
+    end
+    
+    -- Добавляем отсутствующие цены из стакана
+    local added_count = 0
+    for i = 1, #MyQuote do
+        if MyQuote[i] and MyQuote[i].Price then
+            local price_key = string.format("%.4f", tonumber(MyQuote[i].Price))
+            
+            if not existing_prices[price_key] then
+                -- Добавляем новую запись для отсутствующей цены
+                local newTable = {
+                    Price = MyQuote[i].Price,
+                    Type = "",
+                    direction = "",
+                    Volume = 0,
+                    Avg_Volume = 0,
+                    TotalBeyond = 0
+                }
+                table.insert(IcebergArray, newTable)
+                added_count = added_count + 1
+            end
+        end
+    end
+    
+    -- Удаляем устаревшие цены, которых нет в текущем стакане (опционально)
+    local removed_count = CleanOldPrices(existing_prices)
+    
+    -- Сортируем массив по цене
+    table.sort(IcebergArray, function(a, b)
+        return tonumber(a.Price) < tonumber(b.Price)
+    end)
+
+    -- ОБНОВЛЯЕМ TotalBeyond после синхронизации
+    local best_bid, best_ask = GetBestBidAsk()
+    CalculateTotalBeyondVolumes(tonumber(best_bid), tonumber(best_ask))
+    
+    return added_count
+end
+
+-- Добавляем функцию для ручного обновления таблицы
+function ManualRefresh()
+    message("Ручное обновление таблицы айсбергов")
+    local best_bid, best_ask = GetBestBidAsk()
+    CalculateTotalBeyondVolumes(tonumber(best_bid), tonumber(best_ask))
+    safe_PrintValues()
+end
+
+
+function CleanOldPrices(existing_prices)
+    if not CLEAN_OLD_PRICES then
+        return 0
+    end
+    
+    local removed_count = 0
+    local current_prices = {}
+    
+    -- Собираем текущие цены из стакана
+    for i = 1, #MyQuote do
+        if MyQuote[i] and MyQuote[i].Price then
+            local price_key = string.format("%.4f", tonumber(MyQuote[i].Price))
+            current_prices[price_key] = true
+        end
+    end
+    
+    -- Удаляем записи, которых нет в текущем стакане
+    for i = #IcebergArray, 1, -1 do
+        if IcebergArray[i] and IcebergArray[i].Price then
+            local price_key = string.format("%.4f", tonumber(IcebergArray[i].Price))
+            
+            -- Если цены нет в текущем стакане И это не айсберг, удаляем
+            if not current_prices[price_key] and 
+               (not IcebergArray[i].direction or IcebergArray[i].direction == "") then
+                table.remove(IcebergArray, i)
+                removed_count = removed_count + 1
+            end
+        end
+    end
+    
+    return removed_count
+end
+
+-- Глобальная настройка (можно включить/выключить очистку старых цен)
+CLEAN_OLD_PRICES = true  -- true - удалять устаревшие цены, false - оставлять
+
+
+function GetBestBidAsk()
+    local best_bid = 0
+    local best_ask = 0
+    
+    if orderbook_data and #orderbook_data.bids > 0 then
+        best_bid = orderbook_data.bids[#orderbook_data.bids].price
+    end
+    
+    if orderbook_data and #orderbook_data.asks > 0 then
+        best_ask = orderbook_data.asks[1].price
+    end
+    
+    return best_bid, best_ask
 end

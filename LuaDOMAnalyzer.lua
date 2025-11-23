@@ -1,13 +1,15 @@
 dofile(getScriptPath().."\\LevelViewer.lua")
 dofile(getScriptPath().."\\IcebergViewer.lua")
 dofile(getScriptPath().."\\TimeAndSalesLoader.lua")
+dofile(getScriptPath().."\\getStatistic.lua")
+
 filtered_trades = filtered_trades or {}
 orderbook_data = orderbook_data or {bids = {}, asks = {}}
-orderbook_history = {}
+orderbook_history = orderbook_history or {}
 
 function OnInit()
     MyQuote = {}
-    IcebergArray = {}
+    IcebergArray = IcebergArray or {}
     CurrentTimeAndSales = {}
 end
 function main()
@@ -17,7 +19,14 @@ function main()
     
     while is_run do
         CreateLevel2("QJSIM","AFLT")
-        analyzeIcebergPatterns()
+        safe_AnalyzeIcebergPatterns()
+        InitSpoofingTable()
+
+        if(#IcebergArray == 0) then
+            FindIceberg()
+        end
+        
+
         
         if  IsWindowClosed(l_id) then
             is_run = false
